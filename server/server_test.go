@@ -8,24 +8,31 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type StubBlogStore struct {
+	data map[string]string
+}
+
+func (s *StubBlogStore) GetArticle(slug string) string {
+	return s.data[slug]
+}
+
 func TestGETArticle(t *testing.T) {
-	request, _ := http.NewRequest(http.MethodGet, "/api/articles/some-art", nil)
-	response := httptest.NewRecorder()
+	testCases := map[string]string{
+		"some-art":       "some art",
+		"some-other-art": "some other art",
+	}
+	server := &BlogServer{&StubBlogStore{testCases}}
+	for key, value := range testCases {
+		req, resp := createGETArticleRequestSuite(key)
 
-	BlogServer(response, request)
+		server.ServeHTTP(resp, req)
+		got := resp.Body.String()
+		want := value
+		assert.Equal(t, want, got, "should return correct article")
+	}
+}
 
-	got := response.Body.String()
-	want := "some art"
-
-	assert.Equal(t, want, got, "should return correct article")
-
-	request, _ = http.NewRequest(http.MethodGet, "/api/articles/some-other-art", nil)
-	response = httptest.NewRecorder()
-
-	BlogServer(response, request)
-
-	got = response.Body.String()
-	want = "some other art"
-
-	assert.Equal(t, want, got, "should return correct article")
+func createGETArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
+	req, _ := http.NewRequest(http.MethodGet, "/api/articles/"+slug, nil)
+	return req, httptest.NewRecorder()
 }
