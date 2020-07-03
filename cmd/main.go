@@ -11,8 +11,8 @@ import (
 type InMemoryBlogStore struct{}
 
 // GetArticle returns article from in memory blog store
-func (s *InMemoryBlogStore) GetArticle(search string) string {
-	return "article from fake store"
+func (s *InMemoryBlogStore) GetArticle(search string) (article string, e error) {
+	return "article from fake store", nil
 }
 
 func main() {
