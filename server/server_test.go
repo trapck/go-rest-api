@@ -26,7 +26,7 @@ func (s *StubBlogStore) GetArticle(slug string) (article Article, e error) {
 			break
 		}
 	}
-	return article, e
+	return
 }
 
 func (s *StubBlogStore) CreateArticle(a SingleArticleHTTPWrap) (article Article, e error) {
@@ -38,20 +38,17 @@ func TestGetArticle(t *testing.T) {
 		Article{"some-art", "some art"},
 		Article{"some-other-art", "some other art"},
 	}
-	server := &BlogServer{&StubBlogStore{testCases, 0}}
+	server := NewBlogServer(&StubBlogStore{testCases, 0})
 
-	t.Run("should return correct articles", func(t *testing.T) {
+	t.Run("should return correct article by search value", func(t *testing.T) {
 		for _, a := range testCases {
 			req, resp := makeGetArticleRequestSuite(a.Slug)
 			server.ServeHTTP(resp, req)
-			assertStatus(t, http.StatusOK, resp.Code)
-			builder := strings.Builder{}
-			json.NewEncoder(&builder).Encode(SingleArticleHTTPWrap{a})
-			assert.Equal(t, builder.String(), resp.Body.String(), "missing correct article")
+			assertSussessJSONResponse(t, resp, SingleArticleHTTPWrap{a})
 		}
 	})
 
-	t.Run("returns 404 on missing articles", func(t *testing.T) {
+	t.Run("should return 404 on missing article by search value", func(t *testing.T) {
 		req, resp := makeGetArticleRequestSuite("not-existing-art")
 		server.ServeHTTP(resp, req)
 		assert.Equal(t, http.StatusNotFound, resp.Code)
@@ -61,17 +58,19 @@ func TestGetArticle(t *testing.T) {
 
 func TestCreateArticle(t *testing.T) {
 	article := Article{"new-art", "new art"}
-	server := &BlogServer{&StubBlogStore{}}
+	server := NewBlogServer(&StubBlogStore{})
 
 	t.Run("should return created article", func(t *testing.T) {
 		req, resp := makeCreateArticleRequestSuite(article)
 		server.ServeHTTP(resp, req)
-		assertStatus(t, http.StatusOK, resp.Code)
-		builder := strings.Builder{}
-		json.NewEncoder(&builder).Encode(SingleArticleHTTPWrap{article})
-		assert.Equal(t, builder.String(), resp.Body.String(), "created article doesnt match request")
+		assertSussessJSONResponse(t, resp, SingleArticleHTTPWrap{article})
 	})
+
+	//TODO: create test with invalid json in request body
+	//TODO: create test to check response on store creation error
 }
+
+//TODO: create test for unsupported routes
 
 func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodGet, "/api/articles/"+slug, nil)
@@ -86,5 +85,26 @@ func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.Response
 
 func assertStatus(t *testing.T, want, got int) {
 	t.Helper()
-	assert.Equal(t, want, got, fmt.Sprintf("did not get correct status, got %d, want %d", got, want))
+	assert.Equal(t, want, got, "did not get correct status")
+}
+
+func assertJSONContentType(t *testing.T, got string) {
+	t.Helper()
+	assert.Equal(t, "application/json", got, "invalid content-type")
+}
+
+func assertJSONBody(t *testing.T, gotJSON string, compareTo interface{}, msg string) {
+	t.Helper()
+	builder := strings.Builder{}
+	json.NewEncoder(&builder).Encode(compareTo)
+	assert.Equal(t, builder.String(), gotJSON, msg)
+}
+
+func assertSussessJSONResponse(t *testing.T, resp *httptest.ResponseRecorder, bodyCompareTo interface{}) {
+	t.Helper()
+	assertStatus(t, http.StatusOK, resp.Code)
+	assertJSONContentType(t, resp.Result().Header.Get("content-type"))
+	assertJSONBody(t, resp.Body.String(), bodyCompareTo, "response body doesnt match desired struct")
+	//TODO: think about object comparison instead of strings
+	//TODO: think about test that will compare desired json string from file system with response body
 }
