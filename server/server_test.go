@@ -66,8 +66,22 @@ func TestCreateArticle(t *testing.T) {
 		assertSussessJSONResponse(t, resp, SingleArticleHTTPWrap{article})
 	})
 
-	//TODO: create test with invalid json in request body
-	//TODO: create test to check response on store creation error
+	//TODO: create test with invalid json in request body + other validations
+	t.Run("should return 422 with error body for invalid json request", func(t *testing.T) {
+		invalidBodies := [...]string{"", "{"}
+		for _, b := range invalidBodies {
+			req, resp := makeCreateArticleBadRequestSuite(b)
+			server.ServeHTTP(resp, req)
+			assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("oninvalid request body %q", b))
+			assertJSONContentType(t, resp)
+			var body UnprocessableEntityResponse
+			err := json.NewDecoder(resp.Body).Decode(&body)
+			failOnNotEqual(t, err, nil, "expected to decode 422 response body without errors")
+			assert.NotEmpty(t, body.Errors.Body, "expected to find elements in 422 response body block ")
+		}
+	})
+
+	//TODO: create test to check response on store level creation error
 }
 
 //TODO: create test for unsupported routes
@@ -83,14 +97,19 @@ func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.Response
 	return req, httptest.NewRecorder()
 }
 
-func assertStatus(t *testing.T, want, got int) {
-	t.Helper()
-	assert.Equal(t, want, got, "did not get correct status")
+func makeCreateArticleBadRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
+	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer([]byte(body)))
+	return req, httptest.NewRecorder()
 }
 
-func assertJSONContentType(t *testing.T, got string) {
+func assertStatus(t *testing.T, want, got int, message string) {
 	t.Helper()
-	assert.Equal(t, "application/json", got, "invalid content-type")
+	assert.Equal(t, want, got, "did not get correct status. "+message)
+}
+
+func assertJSONContentType(t *testing.T, resp *httptest.ResponseRecorder) {
+	t.Helper()
+	assert.Equal(t, "application/json", resp.Result().Header.Get("content-type"), "invalid content-type")
 }
 
 func assertJSONBody(t *testing.T, gotJSON string, compareTo interface{}, msg string) {
@@ -102,8 +121,8 @@ func assertJSONBody(t *testing.T, gotJSON string, compareTo interface{}, msg str
 
 func assertSussessJSONResponse(t *testing.T, resp *httptest.ResponseRecorder, bodyCompareTo interface{}) {
 	t.Helper()
-	assertStatus(t, http.StatusOK, resp.Code)
-	assertJSONContentType(t, resp.Result().Header.Get("content-type"))
+	assertStatus(t, http.StatusOK, resp.Code, "on valid request")
+	assertJSONContentType(t, resp)
 	assertJSONBody(t, resp.Body.String(), bodyCompareTo, "response body doesnt match desired struct")
 	//TODO: think about object comparison instead of strings
 	//TODO: think about test that will compare desired json string from file system with response body

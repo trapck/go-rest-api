@@ -2,6 +2,8 @@ package server
 
 import (
 	"fmt"
+	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,16 +11,17 @@ import (
 
 func TestInsertArticle(t *testing.T) {
 	db := initDB(t)
+	sessionID := createSessionID()
 	defer closeDB(t, db)
+	defer clearTestData(db, "article", fmt.Sprintf("title LIKE '%s'", "%"+sessionID+"%"))
 
-	inputArticle := SingleArticleHTTPWrap{Article{Title: "test insert article"}}
+	inputArticle := SingleArticleHTTPWrap{Article{Title: fmt.Sprintf("test%s insert article", sessionID)}}
 	outputArticle, err := db.CreateArticle(inputArticle)
 	failOnNotEqual(t, err, nil, fmt.Sprintf("article must be created without error, instead got : %s", err))
 	failOnEqual(t, "", outputArticle.Slug, "created article must have slug, but got empty string") //TODO: change slug to id
 	foundNewArticle, err := db.GetArticle(outputArticle.Slug)
 	failOnNotEqual(t, err, nil, fmt.Sprintf("expected to get just created article by slug value %q but got error. %q", outputArticle.Slug, err))
 	assert.Equal(t, inputArticle.Title, foundNewArticle.Title, "new article should be found in db with the same title")
-	//TODO: wrap into transaction to have clear db after test
 }
 
 func TestSelectArticle(t *testing.T) {
@@ -47,6 +50,14 @@ func closeDB(t *testing.T, db *DBBlogStore) {
 	if err != nil {
 		assert.FailNow(t, "db connection was not closed. ", err)
 	}
+}
+
+func clearTestData(db *DBBlogStore, table, filter string) {
+	db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE %s", table, filter))
+}
+
+func createSessionID() string {
+	return strconv.Itoa(int(rand.Uint32()))
 }
 
 func failOnEqual(t *testing.T, v1 interface{}, v2 interface{}, msg string) {
