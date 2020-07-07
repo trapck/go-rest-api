@@ -21,7 +21,12 @@ func (s *InMemoryBlogStore) CreateArticle(a server.SingleArticleHTTPWrap) (artic
 }
 
 func main() {
-	s := server.NewBlogServer(&InMemoryBlogStore{})
+	store := server.DBBlogStore{}
+	if err := store.Init(); err != nil {
+		log.Fatalf("could not open db connection %q", err)
+	}
+	defer store.Close()
+	s := server.NewBlogServer(&store)
 	if err := http.ListenAndServe(":3000", s); err != nil {
 		log.Fatalf("could not listen on port 3000 %v", err)
 	}
