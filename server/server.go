@@ -34,9 +34,7 @@ func (s *BlogServer) serveGetArticle(w http.ResponseWriter, r *http.Request) {
 func (s *BlogServer) serveCreateArticle(w http.ResponseWriter, r *http.Request) {
 	body, _ := ioutil.ReadAll(r.Body)
 	if reqData, err := parseCreateArticleBody(body); err != nil {
-		writeJSONContentType(w)
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		w.Write([]byte(err.Error()))
+		write422Response(w, err)
 	} else {
 		createdArticle, _ := s.Store.CreateArticle(reqData)
 		writeJSONResponse(w, createdArticle)
@@ -62,7 +60,6 @@ func NewBlogServer(s BlogStore) *BlogServer {
 }
 
 func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
-	//errorBody := UnprocessableEntityResponse{Errors: UnprocessableEntityError{Body: []string{}}}
 	errors := []string{}
 	decodeError := json.NewDecoder(bytes.NewBuffer(b)).Decode(&data)
 
@@ -86,4 +83,10 @@ func writeJSONContentType(w http.ResponseWriter) {
 func writeJSONResponse(w http.ResponseWriter, v interface{}) {
 	writeJSONContentType(w)
 	json.NewEncoder(w).Encode(v)
+}
+
+func write422Response(w http.ResponseWriter, e error) {
+	writeJSONContentType(w)
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	w.Write([]byte(e.Error()))
 }
