@@ -1,8 +1,17 @@
 package server
 
+import (
+	"encoding/json"
+)
+
 // UnprocessableEntityResponse represents the response body for 422 responses
 type UnprocessableEntityResponse struct {
 	Errors UnprocessableEntityError
+}
+
+func (e *UnprocessableEntityResponse) Error() string {
+	b, _ := json.Marshal(e)
+	return string(b)
 }
 
 // UnprocessableEntityError represents error in 422 response body

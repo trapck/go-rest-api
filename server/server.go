@@ -32,19 +32,15 @@ func (s *BlogServer) serveGetArticle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *BlogServer) serveCreateArticle(w http.ResponseWriter, r *http.Request) {
-	var reqData SingleArticleHTTPWrap
 	body, _ := ioutil.ReadAll(r.Body)
-
-	if err := validateCreateArticleBody(body); err != nil {
+	if reqData, err := parseCreateArticleBody(body); err != nil {
 		writeJSONContentType(w)
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(UnprocessableEntityResponse{Errors: UnprocessableEntityError{[]string{MsgInvalidBody}}})
-		return
+		w.Write([]byte(err.Error()))
+	} else {
+		createdArticle, _ := s.Store.CreateArticle(reqData)
+		writeJSONResponse(w, createdArticle)
 	}
-
-	json.NewDecoder(bytes.NewBuffer(body)).Decode(&reqData)
-	createdArticle, _ := s.Store.CreateArticle(reqData)
-	writeJSONResponse(w, createdArticle)
 }
 
 func (s *BlogServer) getRoutes() map[string]func(http.ResponseWriter, *http.Request) {
@@ -65,11 +61,22 @@ func NewBlogServer(s BlogStore) *BlogServer {
 	return &server
 }
 
-func validateCreateArticleBody(b []byte) (e error) {
-	if !json.Valid(b) {
-		e = fmt.Errorf("invalid json body")
+func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
+	//errorBody := UnprocessableEntityResponse{Errors: UnprocessableEntityError{Body: []string{}}}
+	errors := []string{}
+	decodeError := json.NewDecoder(bytes.NewBuffer(b)).Decode(&data)
+
+	if decodeError != nil {
+		errors = append(errors, MsgInvalidBody)
+	} else if data.Article.Title == "" { //TODO: use reflect
+		errors = append(errors, fmt.Sprintf("Missing required fields: %q", []string{"Title"}))
+		fmt.Println(errors)
 	}
-	return
+
+	if len(errors) > 0 {
+		e = &UnprocessableEntityResponse{Errors: UnprocessableEntityError{Body: errors}}
+	}
+	return data, e
 }
 
 func writeJSONContentType(w http.ResponseWriter) {

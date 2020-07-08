@@ -66,18 +66,55 @@ func TestCreateArticle(t *testing.T) {
 		assertSussessJSONResponse(t, resp, SingleArticleHTTPWrap{article})
 	})
 
-	//TODO: create test with invalid json in request body + other validations
 	t.Run("should return 422 with error body for invalid json request", func(t *testing.T) {
 		invalidBodies := [...]string{"", "{"}
 		for _, b := range invalidBodies {
 			req, resp := makeCreateArticleBadRequestSuite(b)
 			server.ServeHTTP(resp, req)
-			assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("oninvalid request body %q", b))
+			assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("on invalid request body %q", b))
 			assertJSONContentType(t, resp)
 			var body UnprocessableEntityResponse
 			err := json.NewDecoder(resp.Body).Decode(&body)
 			failOnNotEqual(t, err, nil, "expected to decode 422 response body without errors")
 			assert.NotEmpty(t, body.Errors.Body, "expected to find elements in 422 response body block ")
+		}
+	})
+
+	t.Run("should return 422 with error body for missing required fields", func(t *testing.T) {
+		testCases := [...]struct {
+			a        Article
+			required []string
+		}{
+			{Article{}, []string{"Title"}},
+		}
+		for _, tc := range testCases {
+			req, resp := makeCreateArticleRequestSuite(tc.a)
+			server.ServeHTTP(resp, req)
+			assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("on missing required fields %v", tc.required))
+			assertJSONContentType(t, resp)
+			var body UnprocessableEntityResponse
+			err := json.NewDecoder(resp.Body).Decode(&body)
+			failOnNotEqual(t, err, nil, "expected to decode 422 response body without errors")
+			missing := []string{}
+			for _, r := range tc.required {
+				r = strings.ToLower(r)
+				var isFound bool
+				for _, e := range body.Errors.Body {
+
+					if strings.Contains(strings.ToLower(e), r) {
+						isFound = true
+						break
+					}
+				}
+				if !isFound {
+					missing = append(missing, r)
+				}
+			}
+			if len(missing) > 0 {
+				assert.Fail(t, fmt.Sprintf(
+					"expected to see missing required fields in response body\nmissing: %q\nrequest data: %+v\nresponse data: %+v",
+					missing, tc.a, body))
+			}
 		}
 	})
 
@@ -125,5 +162,5 @@ func assertSussessJSONResponse(t *testing.T, resp *httptest.ResponseRecorder, bo
 	assertJSONContentType(t, resp)
 	assertJSONBody(t, resp.Body.String(), bodyCompareTo, "response body doesnt match desired struct")
 	//TODO: think about object comparison instead of strings
-	//TODO: think about test that will compare desired json string from file system with response body
+	//TODO: compare desired json string from file system. it will show serialization errors (currently there are no json tags in structs)
 }
