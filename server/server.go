@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -18,34 +21,62 @@ type BlogServer struct {
 	http.Handler
 }
 
-// NewBlogServer initializes new instance of the blog server
-func NewBlogServer(s BlogStore) *BlogServer {
-	server := BlogServer{Store: s}
-	router := http.NewServeMux()
-	router.HandleFunc("/api/articles/", server.serveGetArticle)
-	router.HandleFunc("/api/articles", server.serveCreateArticle)
-	server.Handler = router
-	return &server
-}
-
 func (s *BlogServer) serveGetArticle(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimPrefix(r.URL.Path, "/api/articles/")
 	article, err := s.Store.GetArticle(slug)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 	} else {
-		writeSuccessJSONResponse(&w, SingleArticleHTTPWrap{article})
+		writeJSONResponse(w, SingleArticleHTTPWrap{article})
 	}
 }
 
 func (s *BlogServer) serveCreateArticle(w http.ResponseWriter, r *http.Request) {
 	var reqData SingleArticleHTTPWrap
-	json.NewDecoder(r.Body).Decode(&reqData)
+	body, _ := ioutil.ReadAll(r.Body)
+
+	if err := validateCreateArticleBody(body); err != nil {
+		writeJSONContentType(w)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(UnprocessableEntityResponse{Errors: UnprocessableEntityError{[]string{MsgInvalidBody}}})
+		return
+	}
+
+	json.NewDecoder(bytes.NewBuffer(body)).Decode(&reqData)
 	createdArticle, _ := s.Store.CreateArticle(reqData)
-	writeSuccessJSONResponse(&w, createdArticle)
+	writeJSONResponse(w, createdArticle)
 }
 
-func writeSuccessJSONResponse(w *http.ResponseWriter, v interface{}) {
-	(*w).Header().Set("content-type", "application/json")
-	json.NewEncoder((*w)).Encode(v)
+func (s *BlogServer) getRoutes() map[string]func(http.ResponseWriter, *http.Request) {
+	return map[string]func(http.ResponseWriter, *http.Request){
+		"/api/articles/": s.serveGetArticle,
+		"/api/articles":  s.serveCreateArticle,
+	}
+}
+
+// NewBlogServer initializes new instance of the blog server
+func NewBlogServer(s BlogStore) *BlogServer {
+	server := BlogServer{Store: s}
+	router := http.NewServeMux()
+	for r, h := range server.getRoutes() {
+		router.HandleFunc(r, h)
+	}
+	server.Handler = router
+	return &server
+}
+
+func validateCreateArticleBody(b []byte) (e error) {
+	if !json.Valid(b) {
+		e = fmt.Errorf("invalid json body")
+	}
+	return
+}
+
+func writeJSONContentType(w http.ResponseWriter) {
+	w.Header().Set("content-type", "application/json")
+}
+
+func writeJSONResponse(w http.ResponseWriter, v interface{}) {
+	writeJSONContentType(w)
+	json.NewEncoder(w).Encode(v)
 }
