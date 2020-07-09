@@ -64,7 +64,7 @@ func NewBlogServer(s BlogStore) *BlogServer {
 }
 
 func needAuth(route string) bool {
-	return route == "/api/articles"
+	return false //route == "/api/articles"
 }
 
 func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
@@ -85,7 +85,7 @@ func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
 }
 
 func writeJSONContentType(w http.ResponseWriter) {
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set(HeaderKeyContentType, HeaderValueJSONContactType)
 }
 
 func writeJSONResponse(w http.ResponseWriter, v interface{}) {

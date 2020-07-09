@@ -29,3 +29,23 @@ type Article struct {
 type SingleArticleHTTPWrap struct {
 	Article
 }
+
+// CommonUserData represents user data that is common for user request and response
+type CommonUserData struct {
+	Email    string
+	UserName string
+	Bio      string
+	Image    string
+}
+
+// RequestUser represents user request data
+type RequestUser struct {
+	CommonUserData
+	Password string
+}
+
+// ResponseUser represents user response data
+type ResponseUser struct {
+	CommonUserData
+	Token string
+}

@@ -95,7 +95,7 @@ func TestCreateArticle(t *testing.T) {
 //TODO: create test for unsupported routes
 
 func setAuth(r *http.Request) {
-	r.Header.Add("Authorization", "Bearer "+CreateToken(AuthData{"user1"}))
+	r.Header.Add(HeaderKeyAuthorization, "Bearer "+CreateToken(AuthData{"user1"}))
 }
 
 func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
@@ -125,7 +125,7 @@ func assertStatus(t *testing.T, want, got int, message string) {
 
 func assertJSONContentType(t *testing.T, resp *httptest.ResponseRecorder) {
 	t.Helper()
-	assert.Equal(t, "application/json", resp.Result().Header.Get("content-type"), "invalid content-type")
+	assert.Equal(t, HeaderValueJSONContactType, resp.Result().Header.Get(HeaderKeyContentType), "invalid content-type")
 }
 
 func assertJSONBody(t *testing.T, gotJSON string, compareTo interface{}, msg string) {
