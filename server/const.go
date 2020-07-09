@@ -4,3 +4,5 @@ package server
 const (
 	MsgInvalidBody = "invalid json body"
 )
+
+const authSecretKey = "qweasdzxc" // move to .env

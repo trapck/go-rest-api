@@ -53,7 +53,6 @@ func TestGetArticle(t *testing.T) {
 		server.ServeHTTP(resp, req)
 		assert.Equal(t, http.StatusNotFound, resp.Code)
 	})
-
 }
 
 func TestCreateArticle(t *testing.T) {
@@ -66,18 +65,27 @@ func TestCreateArticle(t *testing.T) {
 		assertSussessJSONResponse(t, resp, SingleArticleHTTPWrap{article})
 	})
 
-	//TODO: create test with invalid json in request body + other validations
 	t.Run("should return 422 with error body for invalid json request", func(t *testing.T) {
 		invalidBodies := [...]string{"", "{"}
 		for _, b := range invalidBodies {
-			req, resp := makeCreateArticleBadRequestSuite(b)
+			req, resp := makeCreateArticleRawRequestSuite(b)
 			server.ServeHTTP(resp, req)
-			assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("oninvalid request body %q", b))
-			assertJSONContentType(t, resp)
-			var body UnprocessableEntityResponse
-			err := json.NewDecoder(resp.Body).Decode(&body)
-			failOnNotEqual(t, err, nil, "expected to decode 422 response body without errors")
-			assert.NotEmpty(t, body.Errors.Body, "expected to find elements in 422 response body block ")
+			assert422(t, resp)
+		}
+	})
+
+	t.Run("should return 422 with error body for missing required fields", func(t *testing.T) {
+		testCases := [...]struct {
+			a        Article
+			required []string
+		}{
+			{Article{}, []string{"Title"}},
+		}
+		for _, tc := range testCases {
+			req, resp := makeCreateArticleRequestSuite(tc.a)
+			server.ServeHTTP(resp, req)
+			body := assert422(t, resp)
+			assertRequiredFields(t, tc.a, tc.required, body)
 		}
 	})
 
@@ -85,6 +93,10 @@ func TestCreateArticle(t *testing.T) {
 }
 
 //TODO: create test for unsupported routes
+
+func setAuth(r *http.Request) {
+	r.Header.Add("Authorization", "Bearer "+CreateToken(AuthData{"user1"}))
+}
 
 func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodGet, "/api/articles/"+slug, nil)
@@ -94,17 +106,21 @@ func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseR
 func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.ResponseRecorder) {
 	serializedArticle, _ := json.Marshal(SingleArticleHTTPWrap{a})
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer(serializedArticle))
+	setAuth(req)
 	return req, httptest.NewRecorder()
 }
 
-func makeCreateArticleBadRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
+func makeCreateArticleRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer([]byte(body)))
+	setAuth(req)
 	return req, httptest.NewRecorder()
 }
 
 func assertStatus(t *testing.T, want, got int, message string) {
 	t.Helper()
-	assert.Equal(t, want, got, "did not get correct status. "+message)
+	if want != got {
+		assert.FailNow(t, fmt.Sprintf("didn't get correct status. got %d instead of %d. %s", got, want, message))
+	}
 }
 
 func assertJSONContentType(t *testing.T, resp *httptest.ResponseRecorder) {
@@ -125,5 +141,38 @@ func assertSussessJSONResponse(t *testing.T, resp *httptest.ResponseRecorder, bo
 	assertJSONContentType(t, resp)
 	assertJSONBody(t, resp.Body.String(), bodyCompareTo, "response body doesnt match desired struct")
 	//TODO: think about object comparison instead of strings
-	//TODO: think about test that will compare desired json string from file system with response body
+	//TODO: compare desired json string from file system. it will show serialization errors (currently there are no json tags in structs)
+}
+
+func assert422(t *testing.T, resp *httptest.ResponseRecorder) UnprocessableEntityResponse {
+	t.Helper()
+	assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("on invalid request"))
+	assertJSONContentType(t, resp)
+	var body UnprocessableEntityResponse
+	err := json.NewDecoder(resp.Body).Decode(&body)
+	failOnNotEqual(t, err, nil, "expected to decode 422 response body without errors")
+	failOnEqual(t, len(body.Errors.Body), 0, "expected to find elements in 422 response body block")
+	return body
+}
+
+func assertRequiredFields(t *testing.T, requiredSource interface{}, requiredFields []string, response UnprocessableEntityResponse) {
+	missing := []string{}
+	for _, r := range requiredFields {
+		r = strings.ToLower(r)
+		var isFound bool
+		for _, e := range response.Errors.Body {
+			if strings.Contains(strings.ToLower(e), r) {
+				isFound = true
+				break
+			}
+		}
+		if !isFound {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) > 0 {
+		assert.Fail(t, fmt.Sprintf(
+			"expected to see missing required fields in response body\nmissing: %q\nrequest data: %+v\nresponse data: %+v",
+			missing, requiredSource, response))
+	}
 }
