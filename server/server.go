@@ -53,10 +53,18 @@ func NewBlogServer(s BlogStore) *BlogServer {
 	server := BlogServer{Store: s}
 	router := http.NewServeMux()
 	for r, h := range server.getRoutes() {
-		router.HandleFunc(r, h)
+		var handler http.Handler = http.HandlerFunc(h)
+		if needAuth(r) {
+			handler = ApplyAuth(handler)
+		}
+		router.Handle(r, handler)
 	}
 	server.Handler = router
 	return &server
+}
+
+func needAuth(route string) bool {
+	return route == "/api/articles"
 }
 
 func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {

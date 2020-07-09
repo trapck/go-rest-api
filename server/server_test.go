@@ -53,7 +53,6 @@ func TestGetArticle(t *testing.T) {
 		server.ServeHTTP(resp, req)
 		assert.Equal(t, http.StatusNotFound, resp.Code)
 	})
-
 }
 
 func TestCreateArticle(t *testing.T) {
@@ -95,6 +94,10 @@ func TestCreateArticle(t *testing.T) {
 
 //TODO: create test for unsupported routes
 
+func setAuth(r *http.Request) {
+	r.Header.Add("Authorization", "Bearer "+CreateToken(AuthData{"user1"}))
+}
+
 func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodGet, "/api/articles/"+slug, nil)
 	return req, httptest.NewRecorder()
@@ -103,17 +106,21 @@ func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseR
 func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.ResponseRecorder) {
 	serializedArticle, _ := json.Marshal(SingleArticleHTTPWrap{a})
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer(serializedArticle))
+	setAuth(req)
 	return req, httptest.NewRecorder()
 }
 
 func makeCreateArticleRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer([]byte(body)))
+	setAuth(req)
 	return req, httptest.NewRecorder()
 }
 
 func assertStatus(t *testing.T, want, got int, message string) {
 	t.Helper()
-	assert.Equal(t, want, got, "did not get correct status. "+message)
+	if want != got {
+		assert.FailNow(t, fmt.Sprintf("didn't get correct status. got %d instead of %d. %s", got, want, message))
+	}
 }
 
 func assertJSONContentType(t *testing.T, resp *httptest.ResponseRecorder) {
@@ -139,7 +146,7 @@ func assertSussessJSONResponse(t *testing.T, resp *httptest.ResponseRecorder, bo
 
 func assert422(t *testing.T, resp *httptest.ResponseRecorder) UnprocessableEntityResponse {
 	t.Helper()
-	assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("expected to get 422 response status"))
+	assertStatus(t, http.StatusUnprocessableEntity, resp.Code, fmt.Sprintf("on invalid request"))
 	assertJSONContentType(t, resp)
 	var body UnprocessableEntityResponse
 	err := json.NewDecoder(resp.Body).Decode(&body)
