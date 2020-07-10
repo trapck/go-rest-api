@@ -44,6 +44,23 @@ func (s *DBBlogStore) CreateArticle(a SingleArticleHTTPWrap) (article Article, e
 	return a.Article, err
 }
 
+// GetUser returns user from db
+func (s *DBBlogStore) GetUser(username string) (RequestUserData, error) {
+	var u RequestUserData
+	e := s.db.Get(&u, "SELECT * FROM usr WHERE login=$1", username)
+	return u, e
+}
+
+// Registration creates user in db
+func (s *DBBlogStore) Registration(user RequestUserData) (RequestUserData, error) {
+	if isConnected, e := s.ensureConnection(); !isConnected {
+		return RequestUserData{}, e
+	}
+	_, err := s.db.NamedExec(`INSERT INTO usr (login, password, email, image, bio)
+								VALUES (:login, :password, :email, :image, :bio)`, user)
+	return user, err
+}
+
 func (s *DBBlogStore) ensureConnection() (isConnected bool, e error) {
 	isConnected = s.db != nil
 	if !isConnected {

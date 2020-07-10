@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
@@ -19,6 +21,7 @@ func ApplyAuth(next http.Handler) http.Handler {
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			return []byte(authSecretKey), nil
 		},
+		Extractor:     TokenFromAuthHeader,
 		SigningMethod: jwt.SigningMethodHS256,
 	}).Handler(next)
 }
@@ -31,4 +34,19 @@ func CreateToken(d AuthData) string {
 		"iat":  time.Now().Unix(),
 	}).SignedString([]byte(authSecretKey))
 	return t
+}
+
+// TokenFromAuthHeader extracts token from auth header
+func TokenFromAuthHeader(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", nil
+	}
+
+	authHeaderParts := strings.Fields(authHeader)
+	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != strings.ToLower(AuthHeader0Part) {
+		return "", fmt.Errorf("Authorization header format must be %q format", AuthHeader0Part)
+	}
+
+	return authHeaderParts[1], nil
 }
