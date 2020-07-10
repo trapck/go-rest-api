@@ -5,7 +5,11 @@ const (
 	MsgInvalidBody = "invalid json body"
 )
 
-const authSecretKey = "qweasdzxc" // move to .env
+// Auth depended constants
+const (
+	AuthHeader0Part = "Token"
+	authSecretKey   = "qweasdzxc" // move to .env
+)
 
 // Constants for http header keys
 const (

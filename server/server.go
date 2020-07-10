@@ -13,6 +13,8 @@ import (
 type BlogStore interface {
 	GetArticle(search string) (Article, error)
 	CreateArticle(a SingleArticleHTTPWrap) (Article, error)
+	GetUser(username string) (RequestUserData, error)
+	Registration(user RequestUserData) (RequestUserData, error)
 }
 
 // BlogServer handles bolg api requests
@@ -41,10 +43,28 @@ func (s *BlogServer) serveCreateArticle(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (s *BlogServer) serveRegistration(w http.ResponseWriter, r *http.Request) {
+	body, _ := ioutil.ReadAll(r.Body)
+	if user, err := parseRegistrationBody(body); err != nil {
+		write422Response(w, err)
+	} else {
+		registeredUser, _ := s.Store.Registration(user.User)
+		commonUserData := registeredUser.ToCommonUserData()
+		responseUser := ResponseUser{
+			User: ResponseUserData{
+				CommonUserData: commonUserData,
+				Token:          CreateToken(AuthData{Login: commonUserData.UserName}),
+			},
+		}
+		writeJSONResponse(w, responseUser)
+	}
+}
+
 func (s *BlogServer) getRoutes() map[string]func(http.ResponseWriter, *http.Request) {
 	return map[string]func(http.ResponseWriter, *http.Request){
 		"/api/articles/": s.serveGetArticle,
 		"/api/articles":  s.serveCreateArticle,
+		"/api/users":     s.serveRegistration,
 	}
 }
 
@@ -64,7 +84,35 @@ func NewBlogServer(s BlogStore) *BlogServer {
 }
 
 func needAuth(route string) bool {
-	return false //route == "/api/articles"
+	return route == "/api/articles"
+}
+
+func parseRegistrationBody(b []byte) (data RequestUser, e error) {
+	errors := []string{}
+	decodeError := json.NewDecoder(bytes.NewBuffer(b)).Decode(&data)
+
+	if decodeError != nil {
+		errors = append(errors, MsgInvalidBody)
+	} else { //TODO: use reflect
+		missing := []string{}
+		if data.User.UserName == "" {
+			missing = append(missing, "UserName")
+		}
+		if data.User.Email == "" {
+			missing = append(missing, "Email")
+		}
+		if data.User.Password == "" {
+			missing = append(missing, "Password")
+		}
+		if len(missing) > 0 {
+			errors = append(errors, fmt.Sprintf("Missing required fields: %q", strings.Join(missing, ",")))
+		}
+	}
+
+	if len(errors) > 0 {
+		e = &UnprocessableEntityResponse{Errors: UnprocessableEntityError{Body: errors}}
+	}
+	return data, e
 }
 
 func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
@@ -75,7 +123,6 @@ func parseCreateArticleBody(b []byte) (data SingleArticleHTTPWrap, e error) {
 		errors = append(errors, MsgInvalidBody)
 	} else if data.Article.Title == "" { //TODO: use reflect
 		errors = append(errors, fmt.Sprintf("Missing required fields: %q", []string{"Title"}))
-		fmt.Println(errors)
 	}
 
 	if len(errors) > 0 {
