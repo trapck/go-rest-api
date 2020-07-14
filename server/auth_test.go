@@ -16,6 +16,14 @@ func TestCreateToken(t *testing.T) {
 	})
 }
 
+func TestParseToken(t *testing.T) {
+	u := AuthData{"user1"}
+	token := CreateToken(u)
+	parsedU, err := ParseToken(token)
+	failOnNotEqual(t, err, nil, fmt.Sprintf("expected to parse token %q without errors but gon %q", token, err))
+	assert.Equal(t, u, parsedU, "parsed token must be equal to expected struct")
+}
+
 func TestTokenFromAuthHeader(t *testing.T) {
 	validHeader := AuthHeader0Part + " " + "jwt"
 	r, _ := http.NewRequest(http.MethodGet, "", nil)
