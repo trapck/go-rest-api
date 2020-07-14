@@ -10,11 +10,6 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-// AuthData is data model to use for auth token
-type AuthData struct {
-	Login string
-}
-
 // ApplyAuth applies midleware to check authorization by jwt
 func ApplyAuth(next http.Handler) http.Handler {
 	return jwtmiddleware.New(jwtmiddleware.Options{
@@ -28,12 +23,28 @@ func ApplyAuth(next http.Handler) http.Handler {
 
 // CreateToken generates auth token
 func CreateToken(d AuthData) string {
-	t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user": d,
-		"exp":  time.Now().Add(30 * time.Minute).Unix(),
-		"iat":  time.Now().Unix(),
+	t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, AuthClaims{
+		User: d,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(30 * time.Minute).Unix(),
+			IssuedAt:  time.Now().Unix(),
+		},
 	}).SignedString([]byte(authSecretKey))
 	return t
+}
+
+// ParseToken extracts auth data from token
+func ParseToken(t string) (d AuthData, e error) {
+	token, e := jwt.ParseWithClaims(t, &AuthClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(authSecretKey), nil
+	})
+	if e != nil {
+		return
+	}
+	if claims, ok := token.Claims.(*AuthClaims); ok && token.Valid {
+		d = claims.User
+	}
+	return
 }
 
 // TokenFromAuthHeader extracts token from auth header

@@ -48,6 +48,21 @@ func (s *StubBlogStore) GetUser(username string) (user RequestUserData, e error)
 	return
 }
 
+func (s *StubBlogStore) UpdateUser(username string, data RequestUserData) (u RequestUserData, e error) {
+	for i := range s.users {
+		if s.users[i].UserName == username {
+			s.users[i].UserName = data.UserName
+			s.users[i].Email = data.Email
+			s.users[i].Password = data.Password
+			s.users[i].Bio = data.Bio
+			s.users[i].Image = data.Image
+			u = s.users[i]
+			break
+		}
+	}
+	return
+}
+
 func (s *StubBlogStore) Registration(user RequestUserData) (RequestUserData, error) {
 	s.users = append(s.users, user)
 	return user, nil
@@ -188,14 +203,158 @@ func TestRegistration(t *testing.T) {
 	//TODO: create test to check response on store level creation error
 }
 
+func TestGetCurrentUser(t *testing.T) {
+	username := "user1"
+	user := RequestUserData{CommonUserData: CommonUserData{UserName: username}}
+	store := &StubBlogStore{nil, []RequestUserData{user}, 0}
+	server := NewBlogServer(store)
+
+	t.Run("should return current user by auth token", func(t *testing.T) {
+		req, resp := makeGetCurrentUserRequestSuite(username)
+		server.ServeHTTP(resp, req)
+		var currentUser ResponseUser
+		assertSussessJSONResponse(t, resp, &currentUser)
+		assert.Equal(t, username, currentUser.User.UserName, "exepected current user to have expected username")
+	})
+
+	t.Run("should return 404 for not existing user", func(t *testing.T) {
+		req, resp := makeGetCurrentUserRequestSuite(username + "123")
+		server.ServeHTTP(resp, req)
+		assert.Equal(t, http.StatusNotFound, resp.Code)
+	})
+}
+
+func TestAuthentication(t *testing.T) {
+	username := "user1"
+	password := "123"
+	user := RequestUserData{CommonUserData: CommonUserData{UserName: username}, Password: password}
+	store := &StubBlogStore{nil, []RequestUserData{user}, 0}
+	server := NewBlogServer(store)
+
+	t.Run("should authenticate user by auth body data", func(t *testing.T) {
+		req, resp := makeAuthenticationRequestSuite(user)
+		server.ServeHTTP(resp, req)
+		var authenticatedUser ResponseUser
+		assertSussessJSONResponse(t, resp, &authenticatedUser)
+		assert.NotEmpty(t, authenticatedUser.User.Token, "exepected authenticated user to have an auth token")
+	})
+
+	t.Run("should return 404 for not existing user", func(t *testing.T) {
+		fakeUser := user
+		fakeUser.UserName = user.UserName + "123"
+		req, resp := makeAuthenticationRequestSuite(fakeUser)
+		server.ServeHTTP(resp, req)
+		assert.Equal(t, http.StatusNotFound, resp.Code)
+	})
+
+	t.Run("should return 404 for existing user with incorrect password", func(t *testing.T) {
+		fakeUser := user
+		fakeUser.Password = user.Password + "123"
+		req, resp := makeAuthenticationRequestSuite(fakeUser)
+		server.ServeHTTP(resp, req)
+		assert.Equal(t, http.StatusNotFound, resp.Code)
+	})
+
+	t.Run("should return 422 with error body for invalid json request", func(t *testing.T) {
+		invalidBodies := [...]string{"", "{"}
+		for _, b := range invalidBodies {
+			req, resp := makeAuthenticationRawRequestSuite(b)
+			server.ServeHTTP(resp, req)
+			assert422(t, resp)
+		}
+	})
+
+	t.Run("should return 422 with error body for missing required fields", func(t *testing.T) {
+		testCases := [...]struct {
+			u        RequestUserData
+			required []string
+		}{
+			{RequestUserData{}, []string{"UserName", "Password"}},
+			{RequestUserData{CommonUserData: CommonUserData{UserName: "denis"}}, []string{"Password"}},
+		}
+		for _, tc := range testCases {
+			req, resp := makeRegistrationRequestSuite(tc.u)
+			server.ServeHTTP(resp, req)
+			body := assert422(t, resp)
+			assertRequiredFields(t, tc.u, tc.required, body)
+		}
+	})
+}
+
+func TestPutUser(t *testing.T) {
+	t.Run("should return updated user", func(t *testing.T) {
+		authData := AuthData{"u"}
+		u := RequestUserData{CommonUserData: CommonUserData{UserName: "u1", Bio: "b", Image: "i", Email: "e"}, Password: "p"}
+		updateUser := UpdateUserData{UserName: &(u.UserName), Email: &(u.Email), Password: &(u.Password), Bio: &(u.Bio), Image: &(u.Image)}
+		store := &StubBlogStore{nil, []RequestUserData{RequestUserData{CommonUserData: CommonUserData{UserName: authData.Login}}}, 0}
+		server := NewBlogServer(store)
+		req, resp := makeUpdateUserRequestSuite(updateUser)
+		setAuth(req, authData)
+		server.ServeHTTP(resp, req)
+
+		var updatedUser ResponseUser
+		assertSussessJSONResponse(t, resp, &updatedUser)
+		storeUser, err := store.GetUser(u.UserName)
+		failOnNotEqual(t, err, nil, fmt.Sprintf("expected to find user with updated username %q in store. got error %v", u.UserName, err))
+		assert.Equal(t, u.Email, storeUser.Email, "user email was not update correctly")
+		assert.Equal(t, u.Bio, storeUser.Bio, "user bio was not update correctly")
+		assert.Equal(t, u.Image, storeUser.Image, "user image was not update correctly")
+		assert.Equal(t, u.Password, storeUser.Password, "user password was not update correctly")
+		parsedAuthData, _ := ParseToken(updatedUser.User.Token)
+		assert.Equal(t, u.UserName, parsedAuthData.Login, "should return auth token for new username")
+	})
+
+	t.Run("should not clear user fields that are not in json", func(t *testing.T) {
+		authData := AuthData{"u"}
+		primaryStoreUser := RequestUserData{CommonUserData: CommonUserData{UserName: authData.Login, Bio: "b", Image: "i", Email: "e"}, Password: "p"}
+		store := &StubBlogStore{nil, []RequestUserData{primaryStoreUser}, 0}
+		server := NewBlogServer(store)
+		req, resp := makeUpdateUserRequestSuite(UpdateUserData{})
+		setAuth(req, authData)
+		server.ServeHTTP(resp, req)
+
+		var updatedUser ResponseUser
+		assertSussessJSONResponse(t, resp, &updatedUser)
+		resultStoreUser, err := store.GetUser(authData.Login)
+		failOnNotEqual(t, err, nil, fmt.Sprintf("expected to find user with old username %q in store. got error %v", authData.Login, err))
+		assert.Equal(t, primaryStoreUser.Email, resultStoreUser.Email, "expected user email to be not changed")
+		assert.Equal(t, primaryStoreUser.Bio, resultStoreUser.Bio, "user bio to be not changed")
+		assert.Equal(t, primaryStoreUser.Image, resultStoreUser.Image, "user image to be not changed")
+		assert.Equal(t, primaryStoreUser.Password, resultStoreUser.Password, "user password to be not changed")
+	})
+
+	t.Run("should return 404 for not existing user", func(t *testing.T) {
+		authData := AuthData{"u"}
+		store := &StubBlogStore{nil, []RequestUserData{}, 0}
+		server := NewBlogServer(store)
+		req, resp := makeUpdateUserRequestSuite(UpdateUserData{})
+		setAuth(req, authData)
+		server.ServeHTTP(resp, req)
+		assert.Equal(t, http.StatusNotFound, resp.Code)
+	})
+
+	t.Run("should return 422 with error body for invalid json request", func(t *testing.T) {
+		server := NewBlogServer(&StubBlogStore{})
+		invalidBodies := [...]string{"", "{"}
+		for _, b := range invalidBodies {
+			req, resp := makeUpdateUserRawRequestSuite(b)
+			setAuth(req, AuthData{"u"})
+			server.ServeHTTP(resp, req)
+			assert422(t, resp)
+		}
+	})
+}
+
 //endregion
 
-//TODO: create test for unsupported routes
+//TODO: create test for unsupported routes, invalid route + method pairs
+
+//TODO: add auth test for routes with auth
 
 //region utils
 
-func setAuth(r *http.Request) {
-	r.Header.Add(HeaderKeyAuthorization, AuthHeader0Part+" "+CreateToken(AuthData{"user1"}))
+func setAuth(r *http.Request, a AuthData) {
+	r.Header.Add(HeaderKeyAuthorization, AuthHeader0Part+" "+CreateToken(a))
 }
 
 func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseRecorder) {
@@ -206,13 +365,13 @@ func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseR
 func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.ResponseRecorder) {
 	serializedArticle, _ := json.Marshal(SingleArticleHTTPWrap{a})
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer(serializedArticle))
-	setAuth(req)
+	setAuth(req, AuthData{"user1"})
 	return req, httptest.NewRecorder()
 }
 
 func makeCreateArticleRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer([]byte(body)))
-	setAuth(req)
+	setAuth(req, AuthData{"user1"})
 	return req, httptest.NewRecorder()
 }
 
@@ -224,6 +383,34 @@ func makeRegistrationRequestSuite(u RequestUserData) (*http.Request, *httptest.R
 
 func makeRegistrationRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/users", bytes.NewBuffer([]byte(body)))
+	return req, httptest.NewRecorder()
+}
+
+func makeGetCurrentUserRequestSuite(username string) (*http.Request, *httptest.ResponseRecorder) {
+	req, _ := http.NewRequest(http.MethodGet, "/api/user", nil)
+	setAuth(req, AuthData{username})
+	return req, httptest.NewRecorder()
+}
+
+func makeAuthenticationRequestSuite(u RequestUserData) (*http.Request, *httptest.ResponseRecorder) {
+	serializedUser, _ := json.Marshal(RequestUser{u})
+	req, _ := http.NewRequest(http.MethodPost, "/api/users/login", bytes.NewBuffer(serializedUser))
+	return req, httptest.NewRecorder()
+}
+
+func makeAuthenticationRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
+	req, _ := http.NewRequest(http.MethodPost, "/api/users/login", bytes.NewBuffer([]byte(body)))
+	return req, httptest.NewRecorder()
+}
+
+func makeUpdateUserRequestSuite(u UpdateUserData) (*http.Request, *httptest.ResponseRecorder) {
+	serializedUser, _ := json.Marshal(UpdateUserRequest{User: u})
+	req, _ := http.NewRequest(http.MethodPut, "/api/user", bytes.NewBuffer(serializedUser))
+	return req, httptest.NewRecorder()
+}
+
+func makeUpdateUserRawRequestSuite(body string) (*http.Request, *httptest.ResponseRecorder) {
+	req, _ := http.NewRequest(http.MethodPut, "/api/user", bytes.NewBuffer([]byte(body)))
 	return req, httptest.NewRecorder()
 }
 
