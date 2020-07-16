@@ -2,7 +2,20 @@ package server
 
 import (
 	"encoding/json"
+
+	"github.com/dgrijalva/jwt-go"
 )
+
+// AuthData is data model to use for auth token
+type AuthData struct {
+	Login string
+}
+
+// AuthClaims is auth custom claims type
+type AuthClaims struct {
+	User AuthData `json:"user"`
+	jwt.StandardClaims
+}
 
 // UnprocessableEntityResponse represents the response body for 422 responses
 type UnprocessableEntityResponse struct {
@@ -68,4 +81,18 @@ type RequestUser struct {
 // ResponseUser is user http response model
 type ResponseUser struct {
 	User ResponseUserData
+}
+
+// UpdateUserData is struct for update user request. Uses pointers to indicate null or json absent fields
+type UpdateUserData struct {
+	Email    *string
+	UserName *string
+	Bio      *string
+	Image    *string
+	Password *string
+}
+
+// UpdateUserRequest is request model to update user
+type UpdateUserRequest struct {
+	User UpdateUserData
 }

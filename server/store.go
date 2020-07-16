@@ -51,6 +51,13 @@ func (s *DBBlogStore) GetUser(username string) (RequestUserData, error) {
 	return u, e
 }
 
+// UpdateUser updates user in db
+func (s *DBBlogStore) UpdateUser(username string, data RequestUserData) (RequestUserData, error) {
+	_, err := s.db.Exec("UPDATE usr SET login=$1, password=$2, email=$3, bio=$4, image=$5 WHERE login=$6",
+		data.UserName, data.Password, data.Email, data.Bio, data.Image, username)
+	return data, err
+}
+
 // Registration creates user in db
 func (s *DBBlogStore) Registration(user RequestUserData) (RequestUserData, error) {
 	if isConnected, e := s.ensureConnection(); !isConnected {

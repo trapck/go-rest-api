@@ -64,6 +64,28 @@ func TestInsertUser(t *testing.T) {
 	// TODO: test duplicate users
 }
 
+func TestUpdateUser(t *testing.T) {
+	db := initDB(t)
+	sessionID := createSessionID()
+	currentUserName := "test_update_" + sessionID
+	defer closeDB(t, db)
+	defer clearTestData(db, "usr", fmt.Sprintf("login LIKE '%s'", "%"+sessionID+"%"))
+	_, e := db.db.Exec("INSERT INTO usr (login) VALUES ($1)", currentUserName)
+	failOnNotEqual(t, e, nil, fmt.Sprintf("could not insert test data into db. %q", e))
+
+	updateData := RequestUserData{CommonUserData: CommonUserData{UserName: currentUserName + "_updated", Email: "e", Bio: "b", Image: "i"}, Password: "p"}
+	updatedUser, e := db.UpdateUser(currentUserName, updateData)
+
+	failOnNotEqual(t, e, nil, fmt.Sprintf("expected to update user without errors but got %q", e))
+	assert.Equal(t, updateData, updatedUser, "expected returned user to be equal to input data")
+
+	e = db.db.Get(&updatedUser, "SELECT * FROM usr WHERE login=$1", updateData.UserName)
+	failOnNotEqual(t, e, nil, fmt.Sprintf("expected to select updated user from db without errors but got %q", e))
+	assert.Equal(t, updateData, updatedUser, "expected to find user with updated data in db")
+
+	// TODO: test duplicate users
+}
+
 func TestSelectUser(t *testing.T) {
 	db := initDB(t)
 	defer closeDB(t, db)
