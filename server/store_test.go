@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -9,20 +10,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var testUser = RequestUserData{CommonUserData: CommonUserData{ID: 47, UserName: "unit_test"}}
+
 func TestInsertArticle(t *testing.T) {
 	db := initDB(t)
 	sessionID := createSessionID()
 	defer closeDB(t, db)
 	defer clearTestData(db, "article", fmt.Sprintf("title LIKE '%s'", "%"+sessionID+"%"))
 
-	inputArticle := SingleArticleHTTPWrap{Article{Title: fmt.Sprintf("test%s insert article", sessionID)}}
+	inputArticle := SingleArticleHTTPWrap{Article{Title: fmt.Sprintf("test%s insert article", sessionID), AuthorID: sql.NullInt32{Int32: int32(testUser.ID), Valid: true}}}
 	outputArticle, err := db.CreateArticle(inputArticle)
 	failOnNotEqual(t, err, nil, fmt.Sprintf("article must be created without error, instead got : %s", err))
 	failOnEqual(t, "", outputArticle.Slug, "created article must have slug, but got empty string") //TODO: change slug to id
+	assert.Equal(t, testUser.UserName, outputArticle.Author.UserName, "created article must have expected author")
 	foundNewArticle, err := db.GetArticle(outputArticle.Slug)
 	failOnNotEqual(t, err, nil, fmt.Sprintf("expected to get just created article by slug value %q but got error. %q", outputArticle.Slug, err))
-	assert.Equal(t, inputArticle.Title, foundNewArticle.Title, "new article should be found in db with the same title")
-
+	assert.Equal(t, inputArticle.Title, foundNewArticle.Title, "found in db new article should be found in db with the same title")
+	assert.Equal(t, testUser.UserName, foundNewArticle.Author.UserName, "found in db new article must have expected author")
 	// TODO: test duplicate rows
 }
 
@@ -81,6 +85,7 @@ func TestUpdateUser(t *testing.T) {
 
 	e = db.db.Get(&updatedUser, "SELECT * FROM usr WHERE login=$1", updateData.UserName)
 	failOnNotEqual(t, e, nil, fmt.Sprintf("expected to select updated user from db without errors but got %q", e))
+	updateData.ID = updatedUser.ID
 	assert.Equal(t, updateData, updatedUser, "expected to find user with updated data in db")
 
 	// TODO: test duplicate users

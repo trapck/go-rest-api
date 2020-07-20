@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 
 	"github.com/dgrijalva/jwt-go"
@@ -32,19 +33,9 @@ type UnprocessableEntityError struct {
 	Body []string
 }
 
-// Article is model of the blog article
-type Article struct {
-	Slug  string `db:"slug"`
-	Title string `db:"title"`
-}
-
-// SingleArticleHTTPWrap is http request/response model for single article
-type SingleArticleHTTPWrap struct {
-	Article
-}
-
 // CommonUserData represents user data that is common for user request and response
 type CommonUserData struct {
+	ID       int    `db:"id"`
 	Email    string `db:"email"`
 	UserName string `db:"login"`
 	Bio      string `db:"bio"`
@@ -61,6 +52,15 @@ type RequestUserData struct {
 func (u *RequestUserData) ToCommonUserData() CommonUserData {
 	return CommonUserData{
 		Email:    u.Email,
+		UserName: u.UserName,
+		Bio:      u.Bio,
+		Image:    u.Image,
+	}
+}
+
+// ToProfile converts current type to Profile
+func (u *RequestUserData) ToProfile() Profile {
+	return Profile{
 		UserName: u.UserName,
 		Bio:      u.Bio,
 		Image:    u.Image,
@@ -95,4 +95,25 @@ type UpdateUserData struct {
 // UpdateUserRequest is request model to update user
 type UpdateUserRequest struct {
 	User UpdateUserData
+}
+
+// Profile is model of user's profile
+type Profile struct {
+	UserName string
+	Bio      string
+	Image    string
+}
+
+// Article is model of the blog article
+type Article struct {
+	ID       int           `db:"id"`
+	Slug     string        `db:"slug"`
+	Title    string        `db:"title"`
+	AuthorID sql.NullInt32 `db:"author_id"`
+	Author   Profile
+}
+
+// SingleArticleHTTPWrap is http request/response model for single article
+type SingleArticleHTTPWrap struct {
+	Article
 }
