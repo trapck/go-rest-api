@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,9 +14,8 @@ import (
 )
 
 type StubBlogStore struct {
-	articles        []Article
-	users           []RequestUserData
-	createdArticles int
+	articles []Article
+	users    []RequestUserData
 }
 
 func (s *StubBlogStore) GetArticle(slug string) (article Article, e error) {
@@ -23,6 +23,10 @@ func (s *StubBlogStore) GetArticle(slug string) (article Article, e error) {
 	for _, a := range s.articles {
 		if a.Slug == slug {
 			article = a
+			if article.AuthorID.Valid {
+				u, _ := s.GetUserByID(int(article.AuthorID.Int32))
+				article.Author = u.ToProfile()
+			}
 			e = nil
 			break
 		}
@@ -31,15 +35,31 @@ func (s *StubBlogStore) GetArticle(slug string) (article Article, e error) {
 }
 
 func (s *StubBlogStore) CreateArticle(a SingleArticleHTTPWrap) (Article, error) {
-	newArticle := Article{Slug: CreateSlug(a.Title), Title: a.Title}
-	s.articles = append(s.articles, newArticle)
-	return newArticle, nil
+	a.Article.Slug = CreateSlug(a.Title)
+	s.articles = append(s.articles, a.Article)
+	if a.AuthorID.Valid {
+		u, _ := s.GetUserByID(int(a.AuthorID.Int32))
+		a.Author = u.ToProfile()
+	}
+	return a.Article, nil
 }
 
 func (s *StubBlogStore) GetUser(username string) (user RequestUserData, e error) {
 	e = fmt.Errorf("User with username %q was not found", username)
 	for _, u := range s.users {
 		if u.UserName == username {
+			user = u
+			e = nil
+			break
+		}
+	}
+	return
+}
+
+func (s *StubBlogStore) GetUserByID(id int) (user RequestUserData, e error) {
+	e = fmt.Errorf("User with id %q was not found", id)
+	for _, u := range s.users {
+		if u.ID == id {
 			user = u
 			e = nil
 			break
@@ -72,10 +92,10 @@ func (s *StubBlogStore) Registration(user RequestUserData) (RequestUserData, err
 
 func TestGetArticle(t *testing.T) {
 	testCases := []Article{
-		Article{"some-art", "some art"},
-		Article{"some-other-art", "some other art"},
+		Article{0, "some-art", "some art", sql.NullInt32{}, Profile{}},
+		Article{1, "some-other-art", "some other art", sql.NullInt32{}, Profile{}},
 	}
-	server := NewBlogServer(&StubBlogStore{testCases, nil, 0})
+	server := NewBlogServer(&StubBlogStore{testCases, nil})
 
 	t.Run("should return correct article by search value", func(t *testing.T) {
 		for _, a := range testCases {
@@ -93,27 +113,26 @@ func TestGetArticle(t *testing.T) {
 }
 
 func TestCreateArticle(t *testing.T) {
-	article := Article{"new-art", "new art"}
-	store := &StubBlogStore{}
+	article := Article{0, "new-art", "new art", sql.NullInt32{}, Profile{}}
+	user := RequestUserData{CommonUserData: CommonUserData{ID: 5, UserName: "denis"}}
+	store := &StubBlogStore{users: []RequestUserData{user}}
 	server := NewBlogServer(store)
 
 	t.Run("should return created article", func(t *testing.T) {
 		req, resp := makeCreateArticleRequestSuite(article)
+		setAuth(req, AuthData{user.UserName})
 		server.ServeHTTP(resp, req)
 		var createdArticle SingleArticleHTTPWrap
 		assertSussessJSONResponse(t, resp, &createdArticle)
 		failOnEqual(t, createdArticle.Slug, "", "expected created article to have a slug")
-		storeArticle, err := store.GetArticle(createdArticle.Slug)
+		assert.Equal(t, article.Title, createdArticle.Title, "response article must have expected title")
+		assert.Equal(t, user.UserName, createdArticle.Author.UserName, "response article must have expected author")
+		_, err := store.GetArticle(createdArticle.Slug)
 		failOnNotEqual(
 			t,
 			err,
 			nil,
 			fmt.Sprintf("expected to find article with slug %q in store. got error %v", createdArticle.Slug, err),
-		)
-		assert.Equal(t,
-			article.Title,
-			storeArticle.Title,
-			fmt.Sprintf("found created article with slug %q should have expected title", createdArticle.Slug),
 		)
 	})
 
@@ -135,6 +154,7 @@ func TestCreateArticle(t *testing.T) {
 		}
 		for _, tc := range testCases {
 			req, resp := makeCreateArticleRequestSuite(tc.a)
+			setAuth(req, AuthData{user.UserName})
 			server.ServeHTTP(resp, req)
 			body := assert422(t, resp)
 			assertRequiredFields(t, tc.a, tc.required, body)
@@ -206,7 +226,7 @@ func TestRegistration(t *testing.T) {
 func TestGetCurrentUser(t *testing.T) {
 	username := "user1"
 	user := RequestUserData{CommonUserData: CommonUserData{UserName: username}}
-	store := &StubBlogStore{nil, []RequestUserData{user}, 0}
+	store := &StubBlogStore{nil, []RequestUserData{user}}
 	server := NewBlogServer(store)
 
 	t.Run("should return current user by auth token", func(t *testing.T) {
@@ -228,7 +248,7 @@ func TestAuthentication(t *testing.T) {
 	username := "user1"
 	password := "123"
 	user := RequestUserData{CommonUserData: CommonUserData{UserName: username}, Password: password}
-	store := &StubBlogStore{nil, []RequestUserData{user}, 0}
+	store := &StubBlogStore{nil, []RequestUserData{user}}
 	server := NewBlogServer(store)
 
 	t.Run("should authenticate user by auth body data", func(t *testing.T) {
@@ -286,7 +306,7 @@ func TestPutUser(t *testing.T) {
 		authData := AuthData{"u"}
 		u := RequestUserData{CommonUserData: CommonUserData{UserName: "u1", Bio: "b", Image: "i", Email: "e"}, Password: "p"}
 		updateUser := UpdateUserData{UserName: &(u.UserName), Email: &(u.Email), Password: &(u.Password), Bio: &(u.Bio), Image: &(u.Image)}
-		store := &StubBlogStore{nil, []RequestUserData{RequestUserData{CommonUserData: CommonUserData{UserName: authData.Login}}}, 0}
+		store := &StubBlogStore{nil, []RequestUserData{RequestUserData{CommonUserData: CommonUserData{UserName: authData.Login}}}}
 		server := NewBlogServer(store)
 		req, resp := makeUpdateUserRequestSuite(updateUser)
 		setAuth(req, authData)
@@ -307,7 +327,7 @@ func TestPutUser(t *testing.T) {
 	t.Run("should not clear user fields that are not in json", func(t *testing.T) {
 		authData := AuthData{"u"}
 		primaryStoreUser := RequestUserData{CommonUserData: CommonUserData{UserName: authData.Login, Bio: "b", Image: "i", Email: "e"}, Password: "p"}
-		store := &StubBlogStore{nil, []RequestUserData{primaryStoreUser}, 0}
+		store := &StubBlogStore{nil, []RequestUserData{primaryStoreUser}}
 		server := NewBlogServer(store)
 		req, resp := makeUpdateUserRequestSuite(UpdateUserData{})
 		setAuth(req, authData)
@@ -325,7 +345,7 @@ func TestPutUser(t *testing.T) {
 
 	t.Run("should return 404 for not existing user", func(t *testing.T) {
 		authData := AuthData{"u"}
-		store := &StubBlogStore{nil, []RequestUserData{}, 0}
+		store := &StubBlogStore{nil, []RequestUserData{}}
 		server := NewBlogServer(store)
 		req, resp := makeUpdateUserRequestSuite(UpdateUserData{})
 		setAuth(req, authData)
@@ -365,7 +385,6 @@ func makeGetArticleRequestSuite(slug string) (*http.Request, *httptest.ResponseR
 func makeCreateArticleRequestSuite(a Article) (*http.Request, *httptest.ResponseRecorder) {
 	serializedArticle, _ := json.Marshal(SingleArticleHTTPWrap{a})
 	req, _ := http.NewRequest(http.MethodPost, "/api/articles", bytes.NewBuffer(serializedArticle))
-	setAuth(req, AuthData{"user1"})
 	return req, httptest.NewRecorder()
 }
 

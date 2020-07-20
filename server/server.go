@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -39,6 +40,12 @@ func (s *BlogServer) serveCreateArticle(w http.ResponseWriter, r *http.Request) 
 	if reqData, err := parseCreateArticleBody(body); err != nil {
 		write422Response(w, err)
 	} else {
+		t, _ := TokenFromAuthHeader(r)
+		authData, _ := ParseToken(t)
+		u, e := s.Store.GetUser(authData.Login)
+		if e == nil {
+			reqData.AuthorID = sql.NullInt32{Int32: int32(u.ID), Valid: true}
+		}
 		createdArticle, _ := s.Store.CreateArticle(reqData)
 		writeJSONResponse(w, createdArticle)
 	}
