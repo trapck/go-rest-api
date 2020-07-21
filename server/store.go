@@ -28,10 +28,16 @@ func (s *DBBlogStore) Close() (err error) {
 }
 
 // GetArticle selects article from db by slug search value
-func (s *DBBlogStore) GetArticle(slug string) (article Article, e error) {
+func (s *DBBlogStore) GetArticle(slug string) (Article, error) {
 	var a Article
-	e = s.db.Get(&a, "SELECT * FROM article WHERE slug=$1", slug)
-	return a, e
+	err := s.db.Get(&a, "SELECT * FROM article WHERE slug=$1", slug)
+	if a.AuthorID.Valid && err == nil {
+		var u RequestUserData
+		if u, err = s.getUserByID(int(a.AuthorID.Int32)); err == nil {
+			a.Author = u.ToProfile()
+		}
+	}
+	return a, err
 }
 
 // CreateArticle creates article in db
@@ -39,8 +45,13 @@ func (s *DBBlogStore) CreateArticle(a SingleArticleHTTPWrap) (article Article, e
 	if isConnected, e := s.ensureConnection(); !isConnected {
 		return article, e
 	}
-	a.Article.Slug = CreateSlug(a.Article.Title)
-	_, err := s.db.NamedExec("INSERT INTO article (slug, title) VALUES (:slug, :title)", a.Article)
+	a.Slug = CreateSlug(a.Title)
+	_, err := s.db.Exec("INSERT INTO article (slug, title, author_id) VALUES ($1, $2, $3)", a.Slug, a.Title, a.AuthorID)
+	if a.AuthorID.Valid && err == nil {
+		if u, e := s.getUserByID(int(a.AuthorID.Int32)); e == nil {
+			a.Author = u.ToProfile()
+		}
+	}
 	return a.Article, err
 }
 
@@ -48,6 +59,12 @@ func (s *DBBlogStore) CreateArticle(a SingleArticleHTTPWrap) (article Article, e
 func (s *DBBlogStore) GetUser(username string) (RequestUserData, error) {
 	var u RequestUserData
 	e := s.db.Get(&u, "SELECT * FROM usr WHERE login=$1", username)
+	return u, e
+}
+
+func (s *DBBlogStore) getUserByID(id int) (RequestUserData, error) {
+	var u RequestUserData
+	e := s.db.Get(&u, "SELECT * FROM usr WHERE id=$1", id)
 	return u, e
 }
 
